@@ -20,6 +20,7 @@ def get_inputs_list(inputs):
     return list(chain(*list(map(lambda x: x.values(), filter(lambda x: x is not None, inputs)))))
 
 
+# name -> embedding layer 没法加载预训练的embedding参数
 def create_embedding_dict(sparse_feature_columns, varlen_sparse_feature_columns, seed, l2_reg,
                           prefix='sparse_', seq_mask_zero=True):
     sparse_embedding = {}
@@ -45,6 +46,7 @@ def create_embedding_dict(sparse_feature_columns, varlen_sparse_feature_columns,
     return sparse_embedding
 
 
+# embedding层之后的结果
 def get_embedding_vec_list(embedding_dict, input_dict, sparse_feature_columns, return_feat_list=(), mask_feat_list=()):
     embedding_vec_list = []
     for fg in sparse_feature_columns:
@@ -72,6 +74,7 @@ def create_embedding_matrix(feature_columns, l2_reg, seed, prefix="", seq_mask_z
     return sparse_emb_dict
 
 
+# sparse name -> embedding结果； 分组
 def embedding_lookup(sparse_embedding_dict, sparse_input_dict, sparse_feature_columns, return_feat_list=(),
                      mask_feat_list=(), to_list=False):
     group_embedding_dict = defaultdict(list)
@@ -91,13 +94,14 @@ def embedding_lookup(sparse_embedding_dict, sparse_input_dict, sparse_feature_co
     return group_embedding_dict
 
 
+# name -> embedding结果
 def varlen_embedding_lookup(embedding_dict, sequence_input_dict, varlen_sparse_feature_columns):
     varlen_embedding_vec_dict = {}
     for fc in varlen_sparse_feature_columns:
         feature_name = fc.name
         embedding_name = fc.embedding_name
         if fc.use_hash:
-            lookup_idx = Hash(fc.vocabulary_size, mask_zero=True)(sequence_input_dict[feature_name])
+            lookup_idx = Hash(fc.vocabulary_size, mask_zero=True)(sequence_input_dict[feature_name]) # Input()
         else:
             lookup_idx = sequence_input_dict[feature_name]
         varlen_embedding_vec_dict[feature_name] = embedding_dict[embedding_name](lookup_idx)
@@ -110,15 +114,15 @@ def get_varlen_pooling_list(embedding_dict, features, varlen_sparse_feature_colu
         feature_name = fc.name
         combiner = fc.combiner
         feature_length_name = fc.length_name
-        if feature_length_name is not None:
-            if fc.weight_name is not None:
+        if feature_length_name is not None: # 变长声明长度
+            if fc.weight_name is not None: # 权重
                 seq_input = WeightedSequenceLayer(weight_normalization=fc.weight_norm)(
                     [embedding_dict[feature_name], features[feature_length_name], features[fc.weight_name]])
             else:
                 seq_input = embedding_dict[feature_name]
             vec = SequencePoolingLayer(combiner, supports_masking=False)(
                 [seq_input, features[feature_length_name]])
-        else:
+        else: # 变长不声明长度就要支持mask
             if fc.weight_name is not None:
                 seq_input = WeightedSequenceLayer(weight_normalization=fc.weight_norm, supports_masking=True)(
                     [embedding_dict[feature_name], features[fc.weight_name]])

@@ -11,7 +11,7 @@ def get_xy_fd():
     feature_columns += [VarLenSparseFeat(SparseFeat('hist_item_id', vocabulary_size=3 + 1,embedding_dim=8,embedding_name='item_id'), maxlen=4),
                         VarLenSparseFeat(SparseFeat('hist_cate_id', 2 + 1,embedding_dim=4, embedding_name='cate_id'), maxlen=4)]
 
-    behavior_feature_list = ["item_id", "cate_id"]
+    behavior_feature_list = ["item_id", "cate_id"] # 变长特征使用的base稀疏特征
     uid = np.array([0, 1, 2])
     ugender = np.array([0, 1, 0])
     iid = np.array([1, 2, 3])  # 0 is mask value
@@ -21,6 +21,7 @@ def get_xy_fd():
     hist_iid = np.array([[1, 2, 3, 0], [3, 2, 1, 0], [1, 2, 0, 0]])
     hist_cate_id = np.array([[1, 2, 2, 0], [2, 2, 1, 0], [1, 2, 0, 0]])
 
+    # 特征名->data输入
     feature_dict = {'user': uid, 'gender': ugender, 'item_id': iid, 'cate_id': cate_id,
                     'hist_item_id': hist_iid, 'hist_cate_id': hist_cate_id, 'pay_score': pay_score}
     x = {name:feature_dict[name] for name in get_feature_names(feature_columns)}
@@ -30,7 +31,7 @@ def get_xy_fd():
 
 if __name__ == "__main__":
     x, y, feature_columns, behavior_feature_list = get_xy_fd()
-    model = DIN(feature_columns, behavior_feature_list)
+    model = DIN(feature_columns, behavior_feature_list) # 模型的输入的抽象属性
     model.compile('adam', 'binary_crossentropy',
                   metrics=['binary_crossentropy'])
     history = model.fit(x, y, verbose=1, epochs=10, validation_split=0.5)

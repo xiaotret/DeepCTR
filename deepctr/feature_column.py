@@ -13,6 +13,7 @@ from .layers.utils import concat_func, add_func
 DEFAULT_GROUP_NAME = "default_group"
 
 
+# namedtuple 可以看做简单的结构体
 class SparseFeat(namedtuple('SparseFeat',
                             ['name', 'vocabulary_size', 'embedding_dim', 'use_hash', 'dtype', 'embeddings_initializer',
                              'embedding_name',
@@ -46,7 +47,7 @@ class VarLenSparseFeat(namedtuple('VarLenSparseFeat',
     def __new__(cls, sparsefeat, maxlen, combiner="mean", length_name=None, weight_name=None, weight_norm=True):
         return super(VarLenSparseFeat, cls).__new__(cls, sparsefeat, maxlen, combiner, length_name, weight_name,
                                                     weight_norm)
-
+    # 属性修饰符，复用离散特征的
     @property
     def name(self):
         return self.sparsefeat.name
@@ -87,6 +88,7 @@ class VarLenSparseFeat(namedtuple('VarLenSparseFeat',
         return self.name.__hash__()
 
 
+# dense feature，可以是向量
 class DenseFeat(namedtuple('DenseFeat', ['name', 'dimension', 'dtype'])):
     __slots__ = ()
 
@@ -110,6 +112,7 @@ def get_feature_names(feature_columns):
     return list(features.keys())
 
 
+# 根据抽象的特征输入(nameTuple定义好属性)，转化为Input()
 def build_input_features(feature_columns, prefix=''):
     input_features = OrderedDict()
     for fc in feature_columns:
