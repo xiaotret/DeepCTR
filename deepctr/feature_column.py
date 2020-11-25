@@ -40,6 +40,7 @@ class SparseFeat(namedtuple('SparseFeat',
         return self.name.__hash__()
 
 
+# 'length_name', 'weight_name', 'weight_norm' 长度和权重相关
 class VarLenSparseFeat(namedtuple('VarLenSparseFeat',
                                   ['sparsefeat', 'maxlen', 'combiner', 'length_name', 'weight_name', 'weight_norm'])):
     __slots__ = ()

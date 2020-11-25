@@ -22,7 +22,7 @@ def DIN(dnn_feature_columns, history_feature_list, dnn_use_bn=False,
         task='binary'):
     """Instantiates the Deep Interest Network architecture.
 
-    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model. 包含单值离散，dense和变长特征
     :param history_feature_list: list,to indicate  sequence sparse field
     :param dnn_use_bn: bool. Whether use BatchNormalization before activation or not in deep net
     :param dnn_hidden_units: list,list of positive integer or empty list, the layer number and units in each layer of deep net
@@ -48,10 +48,12 @@ def DIN(dnn_feature_columns, history_feature_list, dnn_use_bn=False,
     varlen_sparse_feature_columns = list(
         filter(lambda x: isinstance(x, VarLenSparseFeat), dnn_feature_columns)) if dnn_feature_columns else []
 
+    # history_feature_list：["item_id", "cate_id"]    history_fc_names：["hist_item_id", "hist_cate_id"]
+    # 把变长特征，细分为多值稀疏sparse_varlen_feature_columns，和历史id序列特征history_feature_columns
     history_feature_columns = []
     sparse_varlen_feature_columns = []
     history_fc_names = list(map(lambda x: "hist_" + x, history_feature_list))
-    for fc in varlen_sparse_feature_columns: # 变长稀疏的，可能是多值稀疏，也可能是历史id
+    for fc in varlen_sparse_feature_columns:
         feature_name = fc.name
         if feature_name in history_fc_names:
             history_feature_columns.append(fc)
@@ -62,31 +64,36 @@ def DIN(dnn_feature_columns, history_feature_list, dnn_use_bn=False,
 
     embedding_dict = create_embedding_matrix(dnn_feature_columns, l2_reg_embedding, seed, prefix="")
 
+    # 计算["item_id", "cate_id"]的embedding结果
     query_emb_list = embedding_lookup(embedding_dict, features, sparse_feature_columns, history_feature_list,
                                       history_feature_list, to_list=True)
+    # 计算["hist_item_id", "hist_cate_id"]的embedding结果
     keys_emb_list = embedding_lookup(embedding_dict, features, history_feature_columns, history_fc_names,
                                      history_fc_names, to_list=True)
+    # 全部单值稀疏特征的embedding结果
     dnn_input_emb_list = embedding_lookup(embedding_dict, features, sparse_feature_columns,
-                                          mask_feat_list=history_feature_list, to_list=True) # 稀疏
+                                          mask_feat_list=history_feature_list, to_list=True)
     dense_value_list = get_dense_input(features, dense_feature_columns)
 
-    # 针对多值稀疏，而不是历史
+    # 针对多值稀疏特征，而不是历史id序列特征，先embedding后池化
     sequence_embed_dict = varlen_embedding_lookup(embedding_dict, features, sparse_varlen_feature_columns)
     sequence_embed_list = get_varlen_pooling_list(sequence_embed_dict, features, sparse_varlen_feature_columns,
                                                   to_list=True)
-
-    dnn_input_emb_list += sequence_embed_list # 稀疏+多值稀疏
-
-    keys_emb = concat_func(keys_emb_list, mask=True)
+    # 单值稀疏+多值稀疏
+    dnn_input_emb_list += sequence_embed_list
     deep_input_emb = concat_func(dnn_input_emb_list)
+
+    # attention处理的历史
+    keys_emb = concat_func(keys_emb_list, mask=True)
     query_emb = concat_func(query_emb_list, mask=True)
     hist = AttentionSequencePoolingLayer(att_hidden_size, att_activation,
                                          weight_normalization=att_weight_normalization, supports_masking=True)([
-        query_emb, keys_emb]) # attention处理的历史
+        query_emb, keys_emb])
 
     deep_input_emb = tf.keras.layers.Concatenate()([NoMask()(deep_input_emb), hist])
     deep_input_emb = tf.keras.layers.Flatten()(deep_input_emb)
-    dnn_input = combined_dnn_input([deep_input_emb], dense_value_list) # 离散embedding+连续
+    # 离散embedding+连续特征
+    dnn_input = combined_dnn_input([deep_input_emb], dense_value_list)
     output = DNN(dnn_hidden_units, dnn_activation, l2_reg_dnn,
                  dnn_dropout, dnn_use_bn, seed)(dnn_input)
     final_logit = tf.keras.layers.Dense(1, use_bias=False,

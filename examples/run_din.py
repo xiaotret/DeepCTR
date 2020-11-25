@@ -30,6 +30,7 @@ def get_xy_fd():
 
 
 if __name__ == "__main__":
+    # feature_columns 模型DNN部分使用到的全部特征，包括变长特征
     x, y, feature_columns, behavior_feature_list = get_xy_fd()
     model = DIN(feature_columns, behavior_feature_list) # 模型的输入的抽象属性
     model.compile('adam', 'binary_crossentropy',

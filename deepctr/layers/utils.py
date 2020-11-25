@@ -41,7 +41,6 @@ class Hash(tf.keras.layers.Layer):
 
     def call(self, x, mask=None, **kwargs):
 
-
         if x.dtype != tf.string:
             zero = tf.as_string(tf.zeros([1], dtype=x.dtype))
             x = tf.as_string(x, )
@@ -54,12 +53,15 @@ class Hash(tf.keras.layers.Layer):
                                                    name=None)  # weak hash
         except:
             hash_x = tf.strings.to_hash_bucket_fast(x, num_buckets,
-                                                    name=None)  # weak hash
+                                              name=None)  # weak hash
+
+        # 技巧！
         if self.mask_zero:
             mask = tf.cast(tf.not_equal(x, zero), dtype='int64')
             hash_x = (hash_x + 1) * mask
 
         return hash_x
+
     def get_config(self, ):
         config = {'num_buckets': self.num_buckets, 'mask_zero': self.mask_zero, }
         base_config = super(Hash, self).get_config()
@@ -111,6 +113,7 @@ class Linear(tf.keras.layers.Layer):
             fc = tf.tensordot(dense_input, self.kernel, axes=(-1, 0))
             linear_logit = fc
         else:
+            # 只对dense_input作全连接，结果再加上sparse_input
             sparse_input, dense_input = inputs
             fc = tf.tensordot(dense_input, self.kernel, axes=(-1, 0))
             linear_logit = reduce_sum(sparse_input, axis=-1, keep_dims=False) + fc
@@ -133,7 +136,7 @@ class Linear(tf.keras.layers.Layer):
 
 def concat_func(inputs, axis=-1, mask=False):
     if not mask:
-        inputs = list(map(NoMask(), inputs))
+        inputs = list(map(NoMask(), inputs)) # ？？？ mask机制？？
     if len(inputs) == 1:
         return inputs[0]
     else:
@@ -151,7 +154,7 @@ def reduce_mean(input_tensor,
                               keep_dims=keep_dims,
                               name=name,
                               reduction_indices=reduction_indices)
-    except TypeError:
+    except TypeError: # 版本问题？
         return tf.reduce_mean(input_tensor,
                               axis=axis,
                               keepdims=keep_dims,
@@ -209,6 +212,7 @@ def softmax(logits, dim=-1, name=None):
 
 
 class Add(tf.keras.layers.Layer):
+    # 相加层，处理多种情况
     def __init__(self, **kwargs):
         super(Add, self).__init__(**kwargs)
 

@@ -67,6 +67,7 @@ class LocalActivationUnit(Layer):
             raise ValueError('A `LocalActivationUnit` layer requires '
                              'inputs of a two inputs with shape (None,1,embedding_size) and (None,T,embedding_size)'
                              'Got different shapes: %s,%s' % (input_shape[0], input_shape[1]))
+        # 为什么hidden_units为空时设置为embedding的四倍？因为元+乘+差
         size = 4 * \
                int(input_shape[0][-1]
                    ) if len(self.hidden_units) == 0 else self.hidden_units[-1]
@@ -78,7 +79,7 @@ class LocalActivationUnit(Layer):
             shape=(1,), initializer=Zeros(), name="bias")
         self.dnn = DNN(self.hidden_units, self.activation, self.l2_reg,
                        self.dropout_rate, self.use_bn, seed=self.seed)
-
+        # DNN之后的一层，直接输出权重
         self.dense = tf.keras.layers.Lambda(lambda x: tf.nn.bias_add(tf.tensordot(
             x[0], x[1], axes=(-1, 0)), x[2]))
 
@@ -90,14 +91,14 @@ class LocalActivationUnit(Layer):
         query, keys = inputs
 
         keys_len = keys.get_shape()[1]
-        queries = K.repeat_elements(query, keys_len, 1)
+        queries = K.repeat_elements(query, keys_len, 1) # 相同元素重复，BP
 
         att_input = tf.concat(
             [queries, keys, queries - keys, queries * keys], axis=-1)
 
         att_out = self.dnn(att_input, training=training)
 
-        attention_score = self.dense([att_out, self.kernel, self.bias])
+        attention_score = self.dense([att_out, self.kernel, self.bias]) # (batch_size, T, 1)
 
         return attention_score
 
@@ -153,7 +154,7 @@ class DNN(Layer):
         hidden_units = [int(input_size)] + list(self.hidden_units)
         self.kernels = [self.add_weight(name='kernel' + str(i),
                                         shape=(
-                                            hidden_units[i], hidden_units[i + 1]),
+                                            hidden_units[i], hidden_units[i + 1]), # 注意索引  hidden_units比self.hidden_units多一个元素！
                                         initializer=glorot_normal(
                                             seed=self.seed),
                                         regularizer=l2(self.l2_reg),
@@ -173,7 +174,7 @@ class DNN(Layer):
         super(DNN, self).build(input_shape)  # Be sure to call this somewhere!
 
     def call(self, inputs, training=None, **kwargs):
-
+        # BN -> activation -> dropout
         deep_input = inputs
 
         for i in range(len(self.hidden_units)):

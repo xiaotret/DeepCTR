@@ -47,7 +47,7 @@ class SequencePoolingLayer(Layer):
         if mode not in ['sum', 'mean', 'max']:
             raise ValueError("mode must be sum or mean")
         self.mode = mode
-        self.eps = tf.constant(1e-8, tf.float32)
+        self.eps = tf.constant(1e-8, tf.float32) # eps做平滑
         super(SequencePoolingLayer, self).__init__(**kwargs)
 
         self.supports_masking = supports_masking
@@ -63,29 +63,30 @@ class SequencePoolingLayer(Layer):
             if mask is None:
                 raise ValueError(
                     "When supports_masking=True,input must support masking")
-            uiseq_embed_list = seq_value_len_list
-            mask = tf.cast(mask, tf.float32)  # tf.to_float(mask)
-            user_behavior_length = reduce_sum(mask, axis=-1, keep_dims=True)
-            mask = tf.expand_dims(mask, axis=2)
+            uiseq_embed_list = seq_value_len_list # (batch_size, seq_len_max, embedding_size)
+            mask = tf.cast(mask, tf.float32)  # tf.to_float(mask) # (batch_size, seq_len_max)
+            user_behavior_length = reduce_sum(mask, axis=-1, keep_dims=True)  # -> (batch_size, 1)
+            mask = tf.expand_dims(mask, axis=2) # (batch_size, seq_len_max, 1)
         else:
             uiseq_embed_list, user_behavior_length = seq_value_len_list
-
-            mask = tf.sequence_mask(user_behavior_length,
-                                    self.seq_len_max, dtype=tf.float32)
-            mask = tf.transpose(mask, (0, 2, 1))
+            # 根据长度值得到mask！！！
+            mask = tf.sequence_mask(user_behavior_length,self.seq_len_max, dtype=tf.float32) # (batch_size, 1, seq_len_max)
+            mask = tf.transpose(mask, (0, 2, 1)) # (batch_size, seq_len_max, 1)
 
         embedding_size = uiseq_embed_list.shape[-1]
 
+        # (batch_size, seq_len_max, embedding_size) tile跟repeat_elements区别？
+        # 权重沿着embedding维度的复制
         mask = tf.tile(mask, [1, 1, embedding_size])
 
         if self.mode == "max":
-            hist = uiseq_embed_list - (1-mask) * 1e9
+            hist = uiseq_embed_list - (1-mask) * 1e9 # 0的地方变得很小！
             return reduce_max(hist, 1, keep_dims=True)
 
-        hist = reduce_sum(uiseq_embed_list * mask, 1, keep_dims=False)
+        hist = reduce_sum(uiseq_embed_list * mask, 1, keep_dims=False) # (batch_size, embedding_size) mask跟值相乘
 
         if self.mode == "mean":
-            hist = div(hist, tf.cast(user_behavior_length, tf.float32) + self.eps)
+            hist = div(hist, tf.cast(user_behavior_length, tf.float32) + self.eps) # mean时考虑变化长度
 
         hist = tf.expand_dims(hist, axis=1)
         return hist
@@ -137,6 +138,7 @@ class WeightedSequenceLayer(Layer):
         super(WeightedSequenceLayer, self).build(
             input_shape)  # Be sure to call this somewhere!
 
+    # 对各个序列元素加权求和
     def call(self, input_list, mask=None, **kwargs):
         if self.supports_masking:
             if mask is None:
@@ -145,18 +147,18 @@ class WeightedSequenceLayer(Layer):
             key_input, value_input = input_list
             mask = tf.expand_dims(mask[0], axis=2)
         else:
-            key_input, key_length_input, value_input = input_list
+            key_input, key_length_input, value_input = input_list # key是seq_value，value是seq_weight！！！
             mask = tf.sequence_mask(key_length_input,
-                                    self.seq_len_max, dtype=tf.bool)
+                                    self.seq_len_max, dtype=tf.bool) # 类似SequencePoolingLayer
             mask = tf.transpose(mask, (0, 2, 1))
 
         embedding_size = key_input.shape[-1]
 
-        if self.weight_normalization:
+        if self.weight_normalization: # 类似AttentionSequencePoolingLayer，影响权重的归一化
             paddings = tf.ones_like(value_input) * (-2 ** 32 + 1)
         else:
             paddings = tf.zeros_like(value_input)
-        value_input = tf.where(mask, value_input, paddings)
+        value_input = tf.where(mask, value_input, paddings) # TODO mask本质也是权重矩阵！！！
 
         if self.weight_normalization:
             value_input = softmax(value_input, dim=1)
@@ -244,7 +246,7 @@ class AttentionSequencePoolingLayer(Layer):
             input_shape)  # Be sure to call this somewhere!
 
     def call(self, inputs, mask=None, training=None, **kwargs):
-
+        # 要么支持mask，要么额外的输入提供变化的长度
         if self.supports_masking:
             if mask is None:
                 raise ValueError(
@@ -256,16 +258,16 @@ class AttentionSequencePoolingLayer(Layer):
 
             queries, keys, keys_length = inputs
             hist_len = keys.get_shape()[1]
-            key_masks = tf.sequence_mask(keys_length, hist_len)
+            key_masks = tf.sequence_mask(keys_length, hist_len) # (?,T)
 
-        attention_score = self.local_att([queries, keys], training=training)
+        attention_score = self.local_att([queries, keys], training=training) # (?,T,1)
 
-        outputs = tf.transpose(attention_score, (0, 2, 1))
+        outputs = tf.transpose(attention_score, (0, 2, 1)) # (?,1,T)
 
-        if self.weight_normalization:
+        if self.weight_normalization: # 归一化是指有值的地方，处理之后，概率和为1
             paddings = tf.ones_like(outputs) * (-2 ** 32 + 1)
         else:
-            paddings = tf.zeros_like(outputs)
+            paddings = tf.zeros_like(outputs) # 未归一化时，为0的地方指数为1，softmax之后有值的地方概率和不为1
 
         outputs = tf.where(key_masks, outputs, paddings)
 
@@ -273,7 +275,7 @@ class AttentionSequencePoolingLayer(Layer):
             outputs = softmax(outputs)
 
         if not self.return_score:
-            outputs = tf.matmul(outputs, keys)
+            outputs = tf.matmul(outputs, keys) # (?,1,embedding_dim)
 
         if tf.__version__ < '1.13.0':
             outputs._uses_learning_phase = attention_score._uses_learning_phase
