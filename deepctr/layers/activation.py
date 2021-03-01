@@ -47,8 +47,8 @@ class Dice(Layer):
         super(Dice, self).build(input_shape)  # Be sure to call this somewhere!
         self.uses_learning_phase = True
 
-    def call(self, inputs, training=None, **kwargs):
-        inputs_normed = self.bn(inputs, training=training)
+    def call(self, inputs, training=None, **kwargs): # Dice：渐变的线性组合，数据适应性的rectifed point
+        inputs_normed = self.bn(inputs, training=training) # 每个神经元是一个元素，元素BN
         # tf.layers.batch_normalization(
         # inputs, axis=self.axis, epsilon=self.epsilon, center=False, scale=False)
         x_p = tf.sigmoid(inputs_normed)

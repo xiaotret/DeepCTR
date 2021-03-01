@@ -40,6 +40,7 @@ def WDL(linear_feature_columns, dnn_feature_columns, dnn_hidden_units=(128, 128)
     linear_logit = get_linear_logit(features, linear_feature_columns, seed=seed, prefix='linear',
                                     l2_reg=l2_reg_linear)
 
+    # 线性部分和deep部分不同的embedding
     sparse_embedding_list, dense_value_list = input_from_feature_columns(features, dnn_feature_columns,
                                                                          l2_reg_embedding, seed)
 
@@ -49,7 +50,7 @@ def WDL(linear_feature_columns, dnn_feature_columns, dnn_hidden_units=(128, 128)
     dnn_logit = tf.keras.layers.Dense(
         1, use_bias=False, kernel_initializer=tf.keras.initializers.glorot_normal(seed))(dnn_out)
 
-    final_logit = add_func([dnn_logit, linear_logit])
+    final_logit = add_func([dnn_logit, linear_logit]) # 线性logit和DNN logit相加
 
     output = PredictionLayer(task)(final_logit)
 

@@ -9,6 +9,7 @@ import tensorflow as tf
 from tensorflow.python.keras.layers import Flatten
 
 
+# 不再传递mask
 class NoMask(tf.keras.layers.Layer):
     def __init__(self, **kwargs):
         super(NoMask, self).__init__(**kwargs)
@@ -20,10 +21,11 @@ class NoMask(tf.keras.layers.Layer):
     def call(self, x, mask=None, **kwargs):
         return x
 
-    def compute_mask(self, inputs, mask):
+    def compute_mask(self, inputs, mask): # 直接返回None，不传递mask
         return None
 
 
+#  Hash层
 class Hash(tf.keras.layers.Layer):
     """
     hash the input to [0,num_buckets)
@@ -42,7 +44,7 @@ class Hash(tf.keras.layers.Layer):
     def call(self, x, mask=None, **kwargs):
 
         if x.dtype != tf.string:
-            zero = tf.as_string(tf.zeros([1], dtype=x.dtype))
+            zero = tf.as_string(tf.zeros([1], dtype=x.dtype)) # 先转化为string，再Hash分桶（Hash分桶作用？）
             x = tf.as_string(x, )
         else:
             zero = tf.as_string(tf.zeros([1], dtype='int32'))
@@ -55,7 +57,7 @@ class Hash(tf.keras.layers.Layer):
             hash_x = tf.strings.to_hash_bucket_fast(x, num_buckets,
                                               name=None)  # weak hash
 
-        # 技巧！
+        # 技巧！根据equal产生mask掩码，对原始变量操作之后乘上掩码
         if self.mask_zero:
             mask = tf.cast(tf.not_equal(x, zero), dtype='int64')
             hash_x = (hash_x + 1) * mask
@@ -69,7 +71,7 @@ class Hash(tf.keras.layers.Layer):
 
 
 class Linear(tf.keras.layers.Layer):
-
+    # 本质就是离散特征和dense特征的线性加权求和
     def __init__(self, l2_reg=0.0, mode=0, use_bias=False, seed=1024, **kwargs):
 
         self.l2_reg = l2_reg
@@ -87,17 +89,17 @@ class Linear(tf.keras.layers.Layer):
                                         shape=(1,),
                                         initializer=tf.keras.initializers.Zeros(),
                                         trainable=True)
-        if self.mode == 1:
+        if self.mode == 1: # 只有dense输入
             self.kernel = self.add_weight(
                 'linear_kernel',
                 shape=[int(input_shape[-1]), 1],
                 initializer=tf.keras.initializers.glorot_normal(self.seed),
                 regularizer=tf.keras.regularizers.l2(self.l2_reg),
                 trainable=True)
-        elif self.mode == 2:
+        elif self.mode == 2: # sparse输入和dense输入
             self.kernel = self.add_weight(
                 'linear_kernel',
-                shape=[int(input_shape[1][-1]), 1],
+                shape=[int(input_shape[1][-1]), 1], # 区别在输入形状
                 initializer=tf.keras.initializers.glorot_normal(self.seed),
                 regularizer=tf.keras.regularizers.l2(self.l2_reg),
                 trainable=True)
@@ -107,16 +109,15 @@ class Linear(tf.keras.layers.Layer):
     def call(self, inputs, **kwargs):
         if self.mode == 0:
             sparse_input = inputs
-            linear_logit = reduce_sum(sparse_input, axis=-1, keep_dims=True)
+            linear_logit = reduce_sum(sparse_input, axis=-1, keep_dims=True) # sparse输入已经施加过权重
         elif self.mode == 1:
             dense_input = inputs
-            fc = tf.tensordot(dense_input, self.kernel, axes=(-1, 0))
+            fc = tf.tensordot(dense_input, self.kernel, axes=(-1, 0)) # 对dense输入做线性加权求和
             linear_logit = fc
         else:
-            # 只对dense_input作全连接，结果再加上sparse_input
             sparse_input, dense_input = inputs
             fc = tf.tensordot(dense_input, self.kernel, axes=(-1, 0))
-            linear_logit = reduce_sum(sparse_input, axis=-1, keep_dims=False) + fc
+            linear_logit = reduce_sum(sparse_input, axis=-1, keep_dims=False) + fc # dense输入线性加权后加上sparse输入
         if self.use_bias:
             linear_logit += self.bias
 

@@ -71,7 +71,7 @@ def get_embedding_vec_list(embedding_dict, input_dict, sparse_feature_columns, r
 
 def create_embedding_matrix(feature_columns, l2_reg, seed, prefix="", seq_mask_zero=True):
     from . import feature_column as fc_lib
-    # 提取稀疏特征和变长特征，建立embedding矩阵
+    # 提取稀疏特征和变长特征，建立对应的embedding layer
     sparse_feature_columns = list(
         filter(lambda x: isinstance(x, fc_lib.SparseFeat), feature_columns)) if feature_columns else []
     varlen_sparse_feature_columns = list(
@@ -96,7 +96,7 @@ def embedding_lookup(sparse_embedding_dict, sparse_input_dict, sparse_feature_co
                 lookup_idx = Hash(fc.vocabulary_size, mask_zero=(feature_name in mask_feat_list))(
                     sparse_input_dict[feature_name])
             else:
-                lookup_idx = sparse_input_dict[feature_name]
+                lookup_idx = sparse_input_dict[feature_name] # Input()
 
             group_embedding_dict[fc.group_name].append(sparse_embedding_dict[embedding_name](lookup_idx))
     if to_list:

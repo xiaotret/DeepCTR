@@ -51,7 +51,7 @@ class LocalActivationUnit(Layer):
         self.use_bn = use_bn
         self.seed = seed
         super(LocalActivationUnit, self).__init__(**kwargs)
-        self.supports_masking = True
+        self.supports_masking = True # 默认支持mask
 
     def build(self, input_shape):
 
@@ -67,14 +67,14 @@ class LocalActivationUnit(Layer):
             raise ValueError('A `LocalActivationUnit` layer requires '
                              'inputs of a two inputs with shape (None,1,embedding_size) and (None,T,embedding_size)'
                              'Got different shapes: %s,%s' % (input_shape[0], input_shape[1]))
-        # 为什么hidden_units为空时设置为embedding的四倍？因为元+乘+差
+        # 为什么hidden_units为空时设置为embedding的四倍？因为相当于不用DNN，直接接在(原始+乘+差)后面一层
         size = 4 * \
                int(input_shape[0][-1]
                    ) if len(self.hidden_units) == 0 else self.hidden_units[-1]
         self.kernel = self.add_weight(shape=(size, 1),
                                       initializer=glorot_normal(
                                           seed=self.seed),
-                                      name="kernel")
+                                      name="kernel") # add_weight()
         self.bias = self.add_weight(
             shape=(1,), initializer=Zeros(), name="bias")
         self.dnn = DNN(self.hidden_units, self.activation, self.l2_reg,
@@ -96,7 +96,7 @@ class LocalActivationUnit(Layer):
         att_input = tf.concat(
             [queries, keys, queries - keys, queries * keys], axis=-1)
 
-        att_out = self.dnn(att_input, training=training)
+        att_out = self.dnn(att_input, training=training) # (batch_size, T, hidden_size[-1]) # !!! 每个向量经过相同的DNN处理
 
         attention_score = self.dense([att_out, self.kernel, self.bias]) # (batch_size, T, 1)
 
@@ -106,7 +106,7 @@ class LocalActivationUnit(Layer):
         return input_shape[1][:2] + (1,)
 
     def compute_mask(self, inputs, mask):
-        return mask
+        return mask # 和self.supports_masking = True什么关系？
 
     def get_config(self, ):
         config = {'activation': self.activation, 'hidden_units': self.hidden_units,

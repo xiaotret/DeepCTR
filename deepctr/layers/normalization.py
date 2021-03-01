@@ -20,19 +20,19 @@ class LayerNormalization(Layer):
         self.scale = scale
         super(LayerNormalization, self).__init__(**kwargs)
 
-    def build(self, input_shape):
+    def build(self, input_shape): # 放缩和平移参数
         self.gamma = self.add_weight(name='gamma', shape=input_shape[-1:],
                                      initializer=Ones(), trainable=True)
         self.beta = self.add_weight(name='beta', shape=input_shape[-1:],
                                     initializer=Zeros(), trainable=True)
         super(LayerNormalization, self).build(input_shape)
 
-    def call(self, inputs):
+    def call(self, inputs): # 正则化之后线性处理，借鉴写法
         mean = K.mean(inputs, axis=self.axis, keepdims=True)
         variance = K.mean(K.square(inputs - mean), axis=-1, keepdims=True)
         std = K.sqrt(variance + self.eps)
         outputs = (inputs - mean) / std
-        if self.scale:
+        if self.scale: # 线性转化
             outputs *= self.gamma
         if self.center:
             outputs += self.beta

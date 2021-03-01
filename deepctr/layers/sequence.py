@@ -65,22 +65,22 @@ class SequencePoolingLayer(Layer):
                     "When supports_masking=True,input must support masking")
             uiseq_embed_list = seq_value_len_list # (batch_size, seq_len_max, embedding_size)
             mask = tf.cast(mask, tf.float32)  # tf.to_float(mask) # (batch_size, seq_len_max)
-            user_behavior_length = reduce_sum(mask, axis=-1, keep_dims=True)  # -> (batch_size, 1)
+            user_behavior_length = reduce_sum(mask, axis=-1, keep_dims=True)  # -> (batch_size, 1) 根据mask计算长度值
             mask = tf.expand_dims(mask, axis=2) # (batch_size, seq_len_max, 1)
         else:
             uiseq_embed_list, user_behavior_length = seq_value_len_list
             # 根据长度值得到mask！！！
             mask = tf.sequence_mask(user_behavior_length,self.seq_len_max, dtype=tf.float32) # (batch_size, 1, seq_len_max)
-            mask = tf.transpose(mask, (0, 2, 1)) # (batch_size, seq_len_max, 1)
+            mask = tf.transpose(mask, (0, 2, 1)) # (batch_size, seq_len_max, 1) # 改变视图，效果比较高？
 
         embedding_size = uiseq_embed_list.shape[-1]
 
         # (batch_size, seq_len_max, embedding_size) tile跟repeat_elements区别？
-        # 权重沿着embedding维度的复制
+        # 沿着embedding维度的复制。自动广播机制？
         mask = tf.tile(mask, [1, 1, embedding_size])
 
         if self.mode == "max":
-            hist = uiseq_embed_list - (1-mask) * 1e9 # 0的地方变得很小！
+            hist = uiseq_embed_list - (1-mask) * 1e9 # mask 0的地方变得很小！
             return reduce_max(hist, 1, keep_dims=True)
 
         hist = reduce_sum(uiseq_embed_list * mask, 1, keep_dims=False) # (batch_size, embedding_size) mask跟值相乘
@@ -110,6 +110,7 @@ class WeightedSequenceLayer(Layer):
     """The WeightedSequenceLayer is used to apply weight score on variable-length sequence feature/multi-value feature.
 
       Input shape
+
         - A list of two  tensor [seq_value,seq_len,seq_weight]
 
         - seq_value is a 3D tensor with shape: ``(batch_size, T, embedding_size)``
@@ -154,11 +155,12 @@ class WeightedSequenceLayer(Layer):
 
         embedding_size = key_input.shape[-1]
 
+        # 序列空白的地方，padding
         if self.weight_normalization: # 类似AttentionSequencePoolingLayer，影响权重的归一化
             paddings = tf.ones_like(value_input) * (-2 ** 32 + 1)
         else:
             paddings = tf.zeros_like(value_input)
-        value_input = tf.where(mask, value_input, paddings) # TODO mask本质也是权重矩阵！！！
+        value_input = tf.where(mask, value_input, paddings) # mask和padding
 
         if self.weight_normalization:
             value_input = softmax(value_input, dim=1)
@@ -184,6 +186,7 @@ class WeightedSequenceLayer(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
+# 相比于weightedSequceLayer，不需要人工输入权重，而是引入局部激活单元决定权重
 class AttentionSequencePoolingLayer(Layer):
     """The Attentional sequence pooling operation used in DIN.
 
@@ -348,7 +351,7 @@ class BiLSTM(Layer):
                 "Unexpected inputs dimensions %d, expect to be 3 dimensions" % (len(input_shape)))
         self.fw_lstm = []
         self.bw_lstm = []
-        for _ in range(self.layers):
+        for _ in range(self.layers): # 多层堆叠的LSTM，相当于多个layer
             self.fw_lstm.append(
                 LSTM(self.units, dropout=self.dropout_rate, bias_initializer='ones', return_sequences=True,
                      unroll=True))
@@ -359,7 +362,7 @@ class BiLSTM(Layer):
         super(BiLSTM, self).build(
             input_shape)  # Be sure to call this somewhere!
 
-    def call(self, inputs, mask=None, **kwargs):
+    def call(self, inputs, mask=None, **kwargs): # 双向堆叠LSTM，每个方向互不影响，各自经过多层处理之后，进行整合
 
         input_fw = inputs
         input_bw = inputs
@@ -367,7 +370,7 @@ class BiLSTM(Layer):
             output_fw = self.fw_lstm[i](input_fw)
             output_bw = self.bw_lstm[i](input_bw)
             output_bw = Lambda(lambda x: K.reverse(
-                x, 1), mask=lambda inputs, mask: mask)(output_bw)
+                x, 1), mask=lambda inputs, mask: mask)(output_bw) # 反向的，要注意转向   # 有问题？？？输入先转向？？？
 
             if i >= self.layers - self.res_layers:
                 output_fw += input_fw
@@ -504,7 +507,7 @@ class Transformer(Layer):
             query_masks = tf.cast(query_masks, tf.float32)
             key_masks = tf.cast(key_masks, tf.float32)
         else:
-            queries, keys, query_masks, key_masks = inputs
+            queries, keys, query_masks, key_masks = inputs # 后两个输入其实为变化的长度
 
             query_masks = tf.sequence_mask(
                 query_masks, self.seq_len_max, dtype=tf.float32)
@@ -628,7 +631,7 @@ def positional_encoding(inputs,
     position_enc = np.array([
         [pos / np.power(10000, 2. * i / num_units)
          for i in range(num_units)]
-        for pos in range(T)])
+         for pos in range(T)])
 
     # Second part, apply the cosine to even columns and sin to odds.
     position_enc[:, 0::2] = np.sin(position_enc[:, 0::2])  # dim 2i

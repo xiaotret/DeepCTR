@@ -13,13 +13,15 @@ from .layers.utils import concat_func, add_func
 DEFAULT_GROUP_NAME = "default_group"
 
 
-# namedtuple 可以看做简单的结构体
+# namedtuple 命名实体 可以看做简单的结构体
+# group_name 特征分域使用
 class SparseFeat(namedtuple('SparseFeat',
                             ['name', 'vocabulary_size', 'embedding_dim', 'use_hash', 'dtype', 'embeddings_initializer',
                              'embedding_name',
                              'group_name', 'trainable'])):
     __slots__ = ()
 
+    # 默认属性值，重新定制；定义类型，所以用 cls+__new__
     def __new__(cls, name, vocabulary_size, embedding_dim=4, use_hash=False, dtype="int32", embeddings_initializer=None,
                 embedding_name=None,
                 group_name=DEFAULT_GROUP_NAME, trainable=True):
@@ -39,8 +41,10 @@ class SparseFeat(namedtuple('SparseFeat',
     def __hash__(self):
         return self.name.__hash__()
 
+# 变长稀疏特征 复用单个稀疏特征
+# combiner 对单个值的整合类型 pooling等
+# 'length_name', 'weight_name'：可能需要一个额外的输入确定输入长度；每个值的权重可能不同，可能需要额外的输入确定
 
-# 'length_name', 'weight_name', 'weight_norm' 长度和权重相关
 class VarLenSparseFeat(namedtuple('VarLenSparseFeat',
                                   ['sparsefeat', 'maxlen', 'combiner', 'length_name', 'weight_name', 'weight_norm'])):
     __slots__ = ()
@@ -113,9 +117,9 @@ def get_feature_names(feature_columns):
     return list(features.keys())
 
 
-# 根据抽象的特征输入(nameTuple定义好属性)，转化为Input()
+# 根据抽象的特征(namedTuple定义好属性)，定义Input()，返回 name->Input()的字典
 def build_input_features(feature_columns, prefix=''):
-    input_features = OrderedDict()
+    input_features = OrderedDict() # 有序词典
     for fc in feature_columns:
         if isinstance(fc, SparseFeat):
             input_features[fc.name] = Input(
@@ -137,11 +141,15 @@ def build_input_features(feature_columns, prefix=''):
 
     return input_features
 
+# features一般是name -> Input()的字典；feature_columns是特征的命名元组
+
 
 def get_linear_logit(features, feature_columns, units=1, use_bias=False, seed=1024, prefix='linear',
                      l2_reg=0):
+    # units是线性logit的个数，可以在多个空间做线性logit(不同的权重)，多个线性logit拼接，增加模型容量
     linear_feature_columns = copy(feature_columns)
     for i in range(len(linear_feature_columns)):
+        # 离散特征(单值，多值)的线性回归，这里的实现方式为长为1的embedding，等价于加权（而没有采用对输入one-hot的处理方式！！！）
         if isinstance(linear_feature_columns[i], SparseFeat):
             linear_feature_columns[i] = linear_feature_columns[i]._replace(embedding_dim=1,
                                                                            embeddings_initializer=Zeros())
@@ -155,7 +163,7 @@ def get_linear_logit(features, feature_columns, units=1, use_bias=False, seed=10
     _, dense_input_list = input_from_feature_columns(features, linear_feature_columns, l2_reg, seed, prefix=prefix)
 
     linear_logit_list = []
-    for i in range(units):
+    for i in range(units): # 多个空间的logit
 
         if len(linear_emb_list[i]) > 0 and len(dense_input_list) > 0:
             sparse_input = concat_func(linear_emb_list[i])
@@ -172,9 +180,10 @@ def get_linear_logit(features, feature_columns, units=1, use_bias=False, seed=10
             return add_func([])
         linear_logit_list.append(linear_logit)
 
-    return concat_func(linear_logit_list)
+    return concat_func(linear_logit_list) # 拼接
 
 
+# 基本的特征处理（稀疏特征embedding，变长的embedding+pooling，dense直接保留）；分组处理
 def input_from_feature_columns(features, feature_columns, l2_reg, seed, prefix='', seq_mask_zero=True,
                                support_dense=True, support_group=False):
     sparse_feature_columns = list(
@@ -182,9 +191,11 @@ def input_from_feature_columns(features, feature_columns, l2_reg, seed, prefix='
     varlen_sparse_feature_columns = list(
         filter(lambda x: isinstance(x, VarLenSparseFeat), feature_columns)) if feature_columns else []
 
+    # 对稀疏特征和多值特征分别embedding，保留dense结果
     embedding_matrix_dict = create_embedding_matrix(feature_columns, l2_reg, seed, prefix=prefix,
                                                     seq_mask_zero=seq_mask_zero)
     group_sparse_embedding_dict = embedding_lookup(embedding_matrix_dict, features, sparse_feature_columns)
+
     dense_value_list = get_dense_input(features, feature_columns)
     if not support_dense and len(dense_value_list) > 0:
         raise ValueError("DenseFeat is not supported in dnn_feature_columns")
